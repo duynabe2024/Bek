@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Чаты | BEK</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">BEK</div>
+      <div class="subtitle">Твои диалоги</div>
+    </div>
+    <div class="current-user">
+      <a href="/" class="profile-link">← Назад в ленту</a>
+    </div>
+  </header>
+
+  <main class="page single-page">
+    <section class="content">
+      <section class="card">
+        <h2>Чаты</h2>
+        <div id="dialogsList" class="dialogs-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const currentUser = localStorage.getItem("bek_username") || "";
+    const dialogsList = document.getElementById("dialogsList");
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (char) => {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#039;"
+        };
+        return map[char];
+      });
+    }
+
+    async function loadDialogs() {
+      if (!currentUser) {
+        dialogsList.innerHTML = "<div class='empty'>Сначала войди в аккаунт.</div>";
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/dialogs/${encodeURIComponent(currentUser)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          dialogsList.innerHTML = `<div class='empty'>${escapeHtml(data.error || "Ошибка загрузки чатов.")}</div>`;
+          return;
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          dialogsList.innerHTML = "<div class='empty'>Чатов пока нет.</div>";
+          return;
+        }
+
+        dialogsList.innerHTML = data.map((dialog) => `
+          <a class="dialog-item" href="/chat?u=${encodeURIComponent(dialog.username)}">
+            <div class="dialog-left">
+              ${dialog.avatar ? `<img class="avatar big" src="${dialog.avatar}" alt="avatar">` : `<div class="avatar big dialog-placeholder"></div>`}
+              <div>
+                <div class="dialog-name">@${escapeHtml(dialog.username)}</div>
+                <div class="dialog-last">
+                  ${dialog.lastFromUser === currentUser ? "Ты: " : ""}
+                  ${escapeHtml(dialog.lastText)}
+                </div>
+              </div>
+            </div>
+
+            <div class="dialog-right">
+              ${dialog.unreadCount > 0 ? `<span class="badge">${dialog.unreadCount > 99 ? "99+" : dialog.unreadCount}</span>` : ""}
+            </div>
+          </a>
+        `).join("");
+      } catch (error) {
+        dialogsList.innerHTML = "<div class='empty'>Ошибка соединения.</div>";
+      }
+    }
+
+    loadDialogs();
+    setInterval(loadDialogs, 3000);
+  </script>
+</body>
+</html>

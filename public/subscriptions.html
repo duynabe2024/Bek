@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Подписки | BEK</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">BEK</div>
+      <div class="subtitle">Подписки и подписчики</div>
+    </div>
+    <div class="current-user">
+      <a href="/" class="profile-link">← Назад в ленту</a>
+    </div>
+  </header>
+
+  <main class="page single-page">
+    <section class="content">
+      <section class="card">
+        <h2>Поиск людей</h2>
+        <div class="search-box">
+          <input id="userSearchInput" type="text" placeholder="Напиши ник" />
+        </div>
+        <div id="searchResults" class="dialogs-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>На тебя подписались</h2>
+        <div id="followersList" class="dialogs-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>Твои подписки</h2>
+        <div id="followingList" class="dialogs-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const currentUser = localStorage.getItem("bek_username") || "";
+    const followersList = document.getElementById("followersList");
+    const followingList = document.getElementById("followingList");
+    const searchInput = document.getElementById("userSearchInput");
+    const searchResults = document.getElementById("searchResults");
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (char) => {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#039;"
+        };
+        return map[char];
+      });
+    }
+
+    async function subscribe(username) {
+      const res = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          follower: currentUser,
+          following: username
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || "Не удалось подписаться.");
+        return false;
+      }
+
+      return true;
+    }
+
+    async function unsubscribe(username) {
+      const res = await fetch("/api/unsubscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          follower: currentUser,
+          following: username
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || "Не удалось отписаться.");
+        return false;
+      }
+
+      return true;
+    }
+
+    function renderUserCard(user, buttonsHtml = "") {
+      return `
+        <div class="dialog-item">
+          <div class="dialog-left">
+            ${user.avatar ? `<img class="avatar big" src="${user.avatar}" alt="avatar">` : `<div class="avatar big dialog-placeholder"></div>`}
+            <div>
+              <div class="dialog-name">@${escapeHtml(user.username)}</div>
+              <div class="dialog-last">${escapeHtml(user.bio || "Без описания")}</div>
+              ${user.is_new ? `<div class="new-follow-label">Новый подписчик</div>` : ""}
+            </div>
+          </div>
+
+          <div class="dialog-right dialog-buttons">
+            ${buttonsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    async function loadSubscriptions() {
+      if (!currentUser) {
+        followersList.innerHTML = "<div class='empty'>Сначала войди в аккаунт.</div>";
+        followingList.innerHTML = "<div class='empty'>Сначала войди в аккаунт.</div>";
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/subscriptions/${encodeURIComponent(currentUser)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          followersList.innerHTML = `<div class='empty'>${escapeHtml(data.error || "Ошибка загрузки.")}</div>`;
+          followingList.innerHTML = `<div class='empty'>${escapeHtml(data.error || "Ошибка загрузки.")}</div>`;
+          return;
+        }
+
+        if (!data.followers.length) {
+          followersList.innerHTML = "<div class='empty'>Пока никто не подписался.</div>";
+        } else {
+          followersList.innerHTML = data.followers.map((user) => renderUserCard(
+            user,
+            `
+            <a class="chat-link action-link" href="/profile?u=${encodeURIComponent(user.username)}">Профиль</a>
+            <a class="chat-link action-link" href="/chat?u=${encodeURIComponent(user.username)}">Чат</a>
+            <button class="small-btn follow-back-btn" data-username="${escapeHtml(user.username)}">Подписаться в ответ</button>
+            `
+          )).join("");
+        }
+
+        if (!data.following.length) {
+          followingList.innerHTML = "<div class='empty'>У тебя пока нет подписок.</div>";
+        } else {
+          followingList.innerHTML = data.following.map((user) => renderUserCard(
+            user,
+            `
+            <a class="chat-link action-link" href="/profile?u=${encodeURIComponent(user.username)}">Профиль</a>
+            <a class="chat-link action-link" href="/chat?u=${encodeURIComponent(user.username)}">Чат</a>
+            <button class="small-btn unfollow-btn" data-username="${escapeHtml(user.username)}">Отписаться</button>
+            `
+          )).join("");
+        }
+
+        document.querySelectorAll(".follow-back-btn").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const ok = await subscribe(btn.dataset.username);
+            if (ok) {
+              await loadSubscriptions();
+            }
+          });
+        });
+
+        document.querySelectorAll(".unfollow-btn").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const ok = await unsubscribe(btn.dataset.username);
+            if (ok) {
+              await loadSubscriptions();
+            }
+          });
+        });
+
+        await fetch("/api/followers-read", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ username: currentUser })
+        });
+      } catch {
+        followersList.innerHTML = "<div class='empty'>Ошибка соединения.</div>";
+        followingList.innerHTML = "<div class='empty'>Ошибка соединения.</div>";
+      }
+    }
+
+    async function searchUsers() {
+      const q = searchInput.value.trim();
+
+      if (!currentUser) {
+        searchResults.innerHTML = "<div class='empty'>Сначала войди в аккаунт.</div>";
+        return;
+      }
+
+      if (!q) {
+        searchResults.innerHTML = "<div class='empty'>Начни вводить ник.</div>";
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/search-users?q=${encodeURIComponent(q)}&viewer=${encodeURIComponent(currentUser)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          searchResults.innerHTML = `<div class='empty'>${escapeHtml(data.error || "Ошибка поиска.")}</div>`;
+          return;
+        }
+
+        if (!data.length) {
+          searchResults.innerHTML = "<div class='empty'>Никого не найдено.</div>";
+          return;
+        }
+
+        searchResults.innerHTML = data.map((user) => `
+          <div class="dialog-item">
+            <div class="dialog-left">
+              ${user.avatar ? `<img class="avatar big" src="${user.avatar}" alt="avatar">` : `<div class="avatar big dialog-placeholder"></div>`}
+              <div>
+                <div class="dialog-name">@${escapeHtml(user.username)}</div>
+                <div class="dialog-last">${escapeHtml(user.bio || "Без описания")}</div>
+              </div>
+            </div>
+
+            <div class="dialog-right dialog-buttons">
+              <a class="chat-link action-link" href="/profile?u=${encodeURIComponent(user.username)}">Профиль</a>
+              ${currentUser !== user.username
+                ? `<button class="small-btn search-subscribe-btn" data-username="${escapeHtml(user.username)}">
+                    ${user.isSubscribed ? "Подписан" : "Подписаться"}
+                  </button>`
+                : ""}
+            </div>
+          </div>
+        `).join("");
+
+        document.querySelectorAll(".search-subscribe-btn").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            if (btn.textContent.trim() === "Подписан") return;
+
+            const ok = await subscribe(btn.dataset.username);
+            if (ok) {
+              btn.textContent = "Подписан";
+              await loadSubscriptions();
+            }
+          });
+        });
+      } catch {
+        searchResults.innerHTML = "<div class='empty'>Ошибка соединения.</div>";
+      }
+    }
+
+    let searchTimeout = null;
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(searchUsers, 250);
+    });
+
+    loadSubscriptions();
+    searchResults.innerHTML = "<div class='empty'>Начни вводить ник.</div>";
+  </script>
+</body>
+</html>

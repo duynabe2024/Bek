@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Профиль | BEK</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">BEK</div>
+      <div class="subtitle">Профиль пользователя</div>
+    </div>
+    <div class="current-user">
+      <a href="/" class="profile-link">← Назад в ленту</a>
+    </div>
+  </header>
+
+  <main class="page single-page">
+    <section class="content">
+      <section class="card">
+        <div class="profile-page-head">
+          <img id="userAvatar" class="avatar xlarge" src="" alt="avatar" />
+          <div>
+            <h1 id="userName">Пользователь</h1>
+            <div class="muted" id="userBirthday"></div>
+            <div class="muted" id="userStats"></div>
+            <p id="userBio"></p>
+
+            <div class="profile-actions">
+              <a id="profileChatLink" class="chat-link action-link" style="display:none;">Написать</a>
+              <button id="subscribeBtn" class="small-btn" style="display:none;">Подписаться</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Посты</h2>
+        <div id="userPosts" class="posts"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (char) => {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#039;"
+        };
+        return map[char];
+      });
+    }
+
+    async function subscribe(currentUser, targetUser) {
+      const res = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          follower: currentUser,
+          following: targetUser
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || "Не удалось подписаться.");
+        return false;
+      }
+
+      return true;
+    }
+
+    async function unsubscribe(currentUser, targetUser) {
+      const res = await fetch("/api/unsubscribe", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          follower: currentUser,
+          following: targetUser
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || "Не удалось отписаться.");
+        return false;
+      }
+
+      return true;
+    }
+
+    async function loadProfilePage() {
+      const username = new URLSearchParams(location.search).get("u");
+      const currentUser = localStorage.getItem("bek_username") || "";
+
+      if (!username) {
+        document.getElementById("userPosts").innerHTML = "<div class='empty'>Пользователь не указан.</div>";
+        return;
+      }
+
+      const res = await fetch(`/api/users/${encodeURIComponent(username)}?viewer=${encodeURIComponent(currentUser)}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById("userPosts").innerHTML = "<div class='empty'>Профиль не найден.</div>";
+        return;
+      }
+
+      document.getElementById("userName").textContent = "@" + data.username;
+      document.getElementById("userBio").textContent = data.bio || "Описание не заполнено.";
+      document.getElementById("userBirthday").textContent = data.birthday
+        ? `День рождения: ${data.birthday}`
+        : "День рождения не указан.";
+
+      document.getElementById("userStats").textContent =
+        `Подписчики: ${data.followersCount || 0} · Подписки: ${data.followingCount || 0} · Посты: ${data.postCount || 0}`;
+
+      const avatar = document.getElementById("userAvatar");
+      if (data.avatar) {
+        avatar.src = data.avatar;
+        avatar.style.display = "block";
+      } else {
+        avatar.style.display = "none";
+      }
+
+      const chatLink = document.getElementById("profileChatLink");
+      const subscribeBtn = document.getElementById("subscribeBtn");
+
+      if (currentUser && currentUser !== data.username) {
+        chatLink.href = `/chat?u=${encodeURIComponent(data.username)}`;
+        chatLink.style.display = "inline-flex";
+
+        subscribeBtn.style.display = "inline-flex";
+        subscribeBtn.textContent = data.isSubscribed ? "Отписаться" : "Подписаться";
+
+        subscribeBtn.onclick = async () => {
+          let ok = false;
+
+          if (data.isSubscribed) {
+            ok = await unsubscribe(currentUser, data.username);
+            if (ok) data.isSubscribed = false;
+          } else {
+            ok = await subscribe(currentUser, data.username);
+            if (ok) data.isSubscribed = true;
+          }
+
+          if (ok) {
+            subscribeBtn.textContent = data.isSubscribed ? "Отписаться" : "Подписаться";
+            loadProfilePage();
+          }
+        };
+      }
+
+      const postsRes = await fetch(`/api/user/${encodeURIComponent(username)}`);
+      const postsData = await postsRes.json();
+
+      const container = document.getElementById("userPosts");
+      container.innerHTML = "";
+
+      if (!postsRes.ok || !postsData.posts.length) {
+        container.innerHTML = "<div class='empty'>У пользователя пока нет постов.</div>";
+        return;
+      }
+
+      postsData.posts.forEach((post) => {
+        const div = document.createElement("div");
+        div.className = "post";
+        div.innerHTML = `
+          <div class="post-category-badge">${escapeHtml(post.category || "Другое")}</div>
+          <div class="post-content">${escapeHtml(post.content)}</div>
+          ${post.image ? `<img class="post-image" src="${post.image}" alt="post image">` : ""}
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    loadProfilePage();
+  </script>
+</body>
+</html>

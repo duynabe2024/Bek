@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Чат | BEK</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">BEK</div>
+      <div class="subtitle">Личный чат</div>
+    </div>
+    <div class="current-user">
+      <a href="/dialogs" class="profile-link">← Назад к чатам</a>
+    </div>
+  </header>
+
+  <main class="page single-page">
+    <section class="content">
+      <section class="card">
+        <h2 id="chatTitle">Чат</h2>
+        <div id="chatStatus" class="muted"></div>
+      </section>
+
+      <section class="card">
+        <div id="messages" class="chat-messages"></div>
+
+        <div class="chat-send-panel">
+          <input id="messageInput" type="text" placeholder="Напишите сообщение" />
+          <input id="fileInput" type="file" />
+          <button id="sendBtn" type="button">Отправить</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const currentUser = localStorage.getItem("bek_username") || "";
+    const otherUser = new URLSearchParams(location.search).get("u") || "";
+
+    const chatTitle = document.getElementById("chatTitle");
+    const chatStatus = document.getElementById("chatStatus");
+    const messagesEl = document.getElementById("messages");
+    const messageInput = document.getElementById("messageInput");
+    const fileInput = document.getElementById("fileInput");
+    const sendBtn = document.getElementById("sendBtn");
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (char) => {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#039;"
+        };
+        return map[char];
+      });
+    }
+
+    function renderAttachment(msg) {
+      if (!msg.file_path) return "";
+
+      const isImage = String(msg.file_type || "").startsWith("image/");
+
+      if (isImage) {
+        return `
+          <div class="message-attachment">
+            <img class="chat-image" src="${msg.file_path}" alt="image" />
+          </div>
+        `;
+      }
+
+      return `
+        <div class="message-attachment">
+          <a class="file-link" href="${msg.file_path}" target="_blank" rel="noopener">
+            📎 ${escapeHtml(msg.file_name || "Файл")}
+          </a>
+        </div>
+      `;
+    }
+
+    async function loadMessages() {
+      try {
+        const res = await fetch(`/api/chat?u1=${encodeURIComponent(currentUser)}&u2=${encodeURIComponent(otherUser)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          messagesEl.innerHTML = `<div class="empty">${escapeHtml(data.error || "Ошибка загрузки чата.")}</div>`;
+          return;
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          messagesEl.innerHTML = `<div class="empty">Сообщений пока нет.</div>`;
+          return;
+        }
+
+        messagesEl.innerHTML = data.map((msg) => `
+          <div class="message ${msg.from_user === currentUser ? "mine" : "theirs"}">
+            <div class="message-author">@${escapeHtml(msg.from_user)}</div>
+            ${msg.text ? `<div>${escapeHtml(msg.text)}</div>` : ""}
+            ${renderAttachment(msg)}
+          </div>
+        `).join("");
+
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch {
+        messagesEl.innerHTML = `<div class="empty">Ошибка соединения.</div>`;
+      }
+    }
+
+    async function sendMessage() {
+      const text = messageInput.value.trim();
+      const file = fileInput.files[0];
+
+      if (!currentUser) {
+        alert("Сначала войди в аккаунт.");
+        return;
+      }
+
+      if (!otherUser) {
+        alert("Не найден собеседник.");
+        return;
+      }
+
+      if (!text && !file) {
+        alert("Напиши сообщение или выбери файл.");
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append("from", currentUser);
+        formData.append("to", otherUser);
+        formData.append("text", text);
+
+        if (file) {
+          formData.append("file", file);
+        }
+
+        const res = await fetch("/api/send", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          alert(data.error || "Ошибка отправки сообщения.");
+          return;
+        }
+
+        messageInput.value = "";
+        fileInput.value = "";
+        await loadMessages();
+      } catch {
+        alert("Ошибка соединения.");
+      }
+    }
+
+    if (!currentUser) {
+      chatStatus.textContent = "Сначала войди в аккаунт.";
+      sendBtn.disabled = true;
+      messageInput.disabled = true;
+      fileInput.disabled = true;
+    } else if (!otherUser) {
+      chatStatus.textContent = "Собеседник не указан.";
+      sendBtn.disabled = true;
+      messageInput.disabled = true;
+      fileInput.disabled = true;
+    } else if (currentUser === otherUser) {
+      chatStatus.textContent = "Нельзя писать самому себе.";
+      sendBtn.disabled = true;
+      messageInput.disabled = true;
+      fileInput.disabled = true;
+    } else {
+      chatTitle.textContent = "Чат с @" + otherUser;
+      chatStatus.textContent = "Ты вошёл как @" + currentUser;
+      loadMessages();
+      setInterval(loadMessages, 2000);
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+
+    messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendMessage();
+    });
+  </script>
+</body>
+</html>
